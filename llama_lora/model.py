@@ -252,8 +252,10 @@ class TransformerBlock(nn.Module):
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args)
+        self.attention = Attention(rank, alpha, args)
         self.feed_forward = FeedForward(
+            rank,
+            alpha,
             dim=args.dim,
             hidden_dim=4 * args.dim,
             multiple_of=args.multiple_of,
@@ -301,7 +303,7 @@ class Transformer(nn.Module):
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
-            self.layers.append(TransformerBlock(layer_id, params))
+            self.layers.append(TransformerBlock(layer_id, rank, alpha, params))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
 
@@ -321,7 +323,7 @@ class Transformer(nn.Module):
         self.tok_embeddings.requires_grad_(False)
 
     def load_weights(self, weights: dict, prefix: str = ""):
-        self.load_state_dict(weights, strict=False).cuda()
+        self.load_state_dict(weights, strict=False)
         
         self.w_output = weights[prefix + "output.weight"].detach().cuda()
         for i in range(len(self.layers)):
@@ -359,12 +361,12 @@ class Transformer(nn.Module):
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)
         h = self.norm(h)
-        output = F.linear(h, self.w_output) + (alpha / rank) * self.lora_output_b(self.lora_output_a(h))
+        output = F.linear(h, self.w_output) + (self.alpha / self.rank) * self.lora_output_b(self.lora_output_a(h))
         output = output.float()
         return output
 
-def forward_no_embeddings(model, h: torch.Tensor, start_pos: int)
-    _bsz, seqlen = h.shape
+def forward_no_embeddings(model, h: torch.Tensor, start_pos: int):
+    _bsz, seqlen, _ = h.shape
     model.freqs_cis = model.freqs_cis.to(h.device)
     freqs_cis = model.freqs_cis[start_pos : start_pos + seqlen]
 
@@ -385,6 +387,6 @@ def forward_no_embeddings(model, h: torch.Tensor, start_pos: int)
     for layer in model.layers:
         h = layer(h, start_pos, freqs_cis, mask)
     h = model.norm(h)
-    output = F.linear(h, model.w_output) + (alpha / rank) * model.lora_output_b(model.lora_output_a(h))
+    output = F.linear(h, model.w_output) + (model.alpha / model.rank) * model.lora_output_b(model.lora_output_a(h))
     output = output.float()
     return output
