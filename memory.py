@@ -232,7 +232,7 @@ class MultiHeadMemory(nn.Module):
         return self.memory_size * self.summary_len
 
     def read(self, hs):
-        bsz, _, _, _ = h.shape
+        bsz, _, _, _ = hs.shape
         out = torch.zeros((bsz, self.memory_size * self.summary_len, self.dim))
         for i in range(len(self.heads)):
             out = out + self.heads[i].read(hs[:,i])
