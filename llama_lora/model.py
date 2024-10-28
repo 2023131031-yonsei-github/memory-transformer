@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+import fairscale.nn.model_parallel.initialize as fs_init
 from fairscale.nn.model_parallel.layers import VocabParallelEmbedding
 
 @dataclass
@@ -81,6 +82,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 class Attention(nn.Module):
     def __init__(self, rank, alpha, args: ModelArgs):
         super().__init__()
+        self.args = args
         self.n_heads = args.n_heads
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
         model_parallel_size = fs_init.get_model_parallel_world_size()
@@ -124,14 +126,14 @@ class Attention(nn.Module):
         ).cuda()
 
     def load_weights(self, weights: dict, prefix: str = ""):
-        self.w_q = weights[prefix + "wq.weight"].detach()
-        self.w_k = weights[prefix + "wk.weight"].detach()
-        self.w_v = weights[prefix + "wv.weight"].detach()
-        self.w_o = weights[prefix + "wo.weight"].detach()
+        self.w_q = weights[prefix + "wq.weight"].detach().cuda()
+        self.w_k = weights[prefix + "wk.weight"].detach().cuda()
+        self.w_v = weights[prefix + "wv.weight"].detach().cuda()
+        self.w_o = weights[prefix + "wo.weight"].detach().cuda()
 
     def clear_cache(self):
-        self.cache_k = torch.zeros(self.cache_k.shape)
-        self.cache_v = torch.zeros(self.cache_v.shape)
+        self.cache_k = torch.zeros(self.cache_k.shape).cuda()
+        self.cache_v = torch.zeros(self.cache_v.shape).cuda()
 
     def init_cache(self):
         self.cache_k = torch.zeros(
@@ -217,9 +219,9 @@ class FeedForward(nn.Module):
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
-        self.w_1 = torch.randn((hidden_dim, dim))
-        self.w_2 = torch.randn((dim, hidden_dim))
-        self.w_3 = torch.randn((hidden_dim, dim))
+        self.w_1 = torch.randn((hidden_dim, dim)).cuda()
+        self.w_2 = torch.randn((dim, hidden_dim)).cuda()
+        self.w_3 = torch.randn((hidden_dim, dim)).cuda()
 
         self.alpha = alpha
         self.rank = rank
@@ -232,9 +234,9 @@ class FeedForward(nn.Module):
         self.lora_w3_b = nn.Linear(rank, hidden_dim, bias=False)
 
     def load_weights(self, weights: dict, prefix: str = ""):
-        self.w_1 = weights[prefix + "w1.weight"].detach()
-        self.w_2 = weights[prefix + "w2.weight"].detach()
-        self.w_3 = weights[prefix + "w3.weight"].detach()
+        self.w_1 = weights[prefix + "w1.weight"].detach().cuda()
+        self.w_2 = weights[prefix + "w2.weight"].detach().cuda()
+        self.w_3 = weights[prefix + "w3.weight"].detach().cuda()
         
     def forward(self, x):
         out = F.linear(x, self.w_1) + (self.alpha / self.rank) * self.lora_w1_b(self.lora_w1_a(x))
@@ -306,7 +308,7 @@ class Transformer(nn.Module):
         self.rank = rank
         self.alpha = alpha
 
-        self.w_output = torch.randn(params.vocab_size, params.dim)
+        self.w_output = torch.randn(params.vocab_size, params.dim).cuda()
         self.lora_output_a = nn.Linear(params.dim, self.rank, bias=False)
         self.lora_output_b = nn.Linear(self.rank, params.vocab_size, bias=False)
 
@@ -319,12 +321,12 @@ class Transformer(nn.Module):
         self.tok_embeddings.requires_grad_(False)
 
     def load_weights(self, weights: dict, prefix: str = ""):
-        self.load_state_dict(weights, strict=False)
+        self.load_state_dict(weights, strict=False).cuda()
         
-        self.w_output = weights[prefix + "output.weight"].detach()
+        self.w_output = weights[prefix + "output.weight"].detach().cuda()
         for i in range(len(self.layers)):
             layer_prefix = prefix + "layers." + str(i) + "."
-            layer.load_weights(weights, layer_prefix)
+            self.layers[i].load_weights(weights, layer_prefix)
     
     def clear_cache(self):
         for layer in self.layers:
