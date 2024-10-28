@@ -362,3 +362,29 @@ class Transformer(nn.Module):
         output = F.linear(h, self.w_output) + (alpha / rank) * self.lora_output_b(self.lora_output_a(h))
         output = output.float()
         return output
+
+def forward_no_embeddings(model, h: torch.Tensor, start_pos: int)
+    _bsz, seqlen = h.shape
+    model.freqs_cis = model.freqs_cis.to(h.device)
+    freqs_cis = model.freqs_cis[start_pos : start_pos + seqlen]
+
+    mask = None
+    if seqlen > 1:
+        mask = torch.full((seqlen, seqlen), float("-inf"), device=h.device)
+
+        mask = torch.triu(mask, diagonal=1)
+
+        # When performing key-value caching, we compute the attention scores
+        # only for the new sequence. Thus, the matrix of scores is of size
+        # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
+        # j > cache_len + i, since row i corresponds to token cache_len + i.
+        mask = torch.hstack(
+            [torch.zeros((seqlen, start_pos), device=h.device), mask]
+        ).type_as(h)
+
+    for layer in model.layers:
+        h = layer(h, start_pos, freqs_cis, mask)
+    h = model.norm(h)
+    output = F.linear(h, model.w_output) + (alpha / rank) * model.lora_output_b(model.lora_output_a(h))
+    output = output.float()
+    return output
