@@ -3,7 +3,8 @@ from typing import Optional, Tuple, List, Union
 
 from memory_transformer import utils
 from memory_transformer import memory
-from memory_transformer.llama_lora.generation import sample_top_p, forward_no_embeddings
+from memory_transformer.llama_lora.generation import sample_top_p
+from memory_transformer.llama_lora.model import forward_no_embeddings
 
 from dataclasses import dataclass
 
