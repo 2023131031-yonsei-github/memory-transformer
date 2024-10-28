@@ -105,8 +105,8 @@ class Attention(nn.Module):
         self.lora_wk_b = nn.Linear(rank, self.n_kv_heads * self.head_dim, bias=False)
         self.lora_wv_a = nn.Linear(args.dim, rank, bias=False)
         self.lora_wv_b = nn.Linear(rank, self.n_kv_heads * self.head_dim, bias=False)
-        self.lora_wk_a = nn.Linear(args.n_heads * self.head_dim, rank, bias=False)
-        self.lora_wk_b = nn.Linear(rank, args.dim, bias=False)
+        self.lora_wo_a = nn.Linear(args.n_heads * self.head_dim, rank, bias=False)
+        self.lora_wo_b = nn.Linear(rank, args.dim, bias=False)
 
         self.cache_k = torch.zeros(
             (
