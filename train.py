@@ -3,6 +3,8 @@ from typing import Optional, Tuple, List, Union
 
 from memory_transformer import utils
 from memory_transformer import memory
+from memory_transformer.llama_lora.generation import sample_top_p
+from memory_transformer.llama_lora.model import forward_no_embeddings
 
 from dataclasses import dataclass
 
@@ -159,13 +161,13 @@ def generate_logits(
 
         # update memory
         if cur_pos - mem_start_pos == mem_cycle_len:
-            mem_start_pos = mem_start_pos + mem_cycle_len
             h_mem = memory.forward(
                 llama.model.tok_embeddings(
-                    tokens[:, i * mem_cycle_len : (i + 1) * mem_cycle_len]
+                    tokens[:, mem_start_pos : cur_pos]
                 ),
                 h_mem,
             )
+            mem_start_pos = mem_start_pos + mem_cycle_len
 
     return torch.stack(arr_logits).transpose(0, 2), torch.stack(
         arr_gt_logits

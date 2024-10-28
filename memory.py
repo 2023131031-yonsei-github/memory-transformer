@@ -161,7 +161,7 @@ class Memory(nn.Module):
         self.memory_norm = nn.RMSNorm((memory_size, memory_dim))
         self.h_norm = nn.RMSNorm((memory_size, memory_dim))
 
-        self.read = nn.Linear(memory_dim, dim * summary_len)
+        self.lin_head = nn.Linear(memory_dim, dim * summary_len)
 
     def forward(
         self, 
@@ -200,7 +200,7 @@ class Memory(nn.Module):
         h: torch.Tensor,
     ):
         bsz, memory_size, _ = h.shape
-        return self.read(h).view(bsz, memory_size * self.summary_len, self.dim)
+        return self.lin_head(h).view(bsz, memory_size * self.summary_len, self.dim)
 
 class MultiHeadMemory(nn.Module):
     def __init__(self, max_seq_len, n_heads, dim, memory_size, memory_dim, summary_len, stride = None):
@@ -220,7 +220,7 @@ class MultiHeadMemory(nn.Module):
     def forward(self, x, hs):
         new_hs = []
         for i in range(len(self.heads)):
-            new_hs.append(heads[i](x,hs[:,i]))
+            new_hs.append(self.heads[i](x,hs[:,i]))
             i = i + 1
         new_hs = torch.stack(new_hs,dim=1)
         return new_hs
@@ -232,9 +232,10 @@ class MultiHeadMemory(nn.Module):
         return self.memory_size * self.summary_len
 
     def read(self, hs):
-        out = torch.zeros((self.bsz, self.memory_size * self.summary_len, self.dim))
-        for i in range(len(heads)):
-            out = out + heads[i].read(hs[:,i])
+        bsz, _, _, _ = hs.shape
+        out = torch.zeros((bsz, self.memory_size * self.summary_len, self.dim))
+        for i in range(len(self.heads)):
+            out = out + self.heads[i].read(hs[:,i])
         return out
 
 
