@@ -16,7 +16,7 @@
 # Lint as: python3
 """The BookCorpus dataset."""
 
-import datasets
+import datasets, os
 
 
 _DESCRIPTION = """\
@@ -54,7 +54,9 @@ class BookcorpusConfig(datasets.BuilderConfig):
 
 class Bookcorpus(datasets.GeneratorBasedBuilder):
     """BookCorpus dataset."""
-
+    def __init__(self):
+        super().__init__()
+        os.environ["HF_DATASETS_CACHE"] = "./bookcorpus/cache"
     BUILDER_CONFIGS = [
         BookcorpusConfig(
             name="plain_text",
