@@ -102,9 +102,9 @@ class MultiHeadSelfAtt(nn.Module):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
         
-        xq = xq.view(bsz, seqlen, n_heads, hdim).transpose(1,2)
-        xk = xk.view(bsz, seqlen, n_heads, hdim).transpose(1,2)
-        xv = xv.view(bsz, seqlen, n_heads, hdim).transpose(1,2)
+        xq = xq.view(bsz, seqlen, self.n_heads, self.hdim).transpose(1,2)
+        xk = xk.view(bsz, seqlen, self.n_heads, self.hdim).transpose(1,2)
+        xv = xv.view(bsz, seqlen, self.n_heads, self.hdim).transpose(1,2)
 
         scores = torch.matmul(xq, xk.transpose(2,3)) / math.sqrt(self.hdim)
         if mask is not None:
@@ -216,8 +216,15 @@ class MultiHeadMemory(nn.Module):
         self.heads = torch.nn.ModuleList()
         for head_id in range(n_heads):
             self.heads.append(Memory(dim, memory_size, memory_dim, summary_len, stride))
+
+        self.pos_embeddings = torch.nn.Parameter(torch.randn(max_seq_len, dim))
         
     def forward(self, x, hs):
+        bsz, seqlen, _ = x.shape
+        assert seqlen < self.max_seq_len
+        emblen, embdim = self.pos_embeddings.shape
+        emb = self.pos_embeddings[None, :, :].expand((bsz, emblen, embdim))
+        x = x + emb[:, :seqlen, :]
         new_hs = []
         for i in range(len(self.heads)):
             new_hs.append(self.heads[i](x,hs[:,i]))
