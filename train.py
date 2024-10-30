@@ -1,10 +1,14 @@
 import torch
+from torch.utils.data import DataLoader
 from typing import Optional, Tuple, List, Union
+import os
+from os.path import join as pjoin
 
-from memory_transformer import utils
-from memory_transformer import memory
-from memory_transformer.llama_lora.generation import sample_top_p
-from memory_transformer.llama_lora.model import forward_no_embeddings
+import utils
+import memory as mem_
+from llama_lora.generation import Llama, sample_top_p
+from llama_lora.model import forward_no_embeddings
+from bookcorpus import dataset_bookcorpus as ds_bc
 
 from dataclasses import dataclass
 
@@ -13,8 +17,8 @@ from dataclasses import dataclass
 class MemoryLLamaTrainArgs:
     train_name: str = "Train"
     llama_version = "llama3.2-1B"
-    llama_ckpt_dir: str = "./checkpoints"
-    llama_tokenizer_path: str = "./checkpoints/tokenizer.model"
+    llama_ckpt_dir: str = "./.llama/checkpoints/Llama3.2-1B-Instruct"
+    llama_tokenizer_path: str = "./.llama/checkpoints/Llama3.2-1B-Instruct/tokenizer.model"
     memory_ckpt_dir: str = "./checkpoints"
     max_seq_len: int = 1024
     max_batch_size: int = 32
@@ -169,13 +173,16 @@ def generate_logits(
             )
             mem_start_pos = mem_start_pos + mem_cycle_len
 
-    return torch.stack(arr_logits).transpose(0, 2), torch.stack(
+    return torch.stack(arr_logits).permute((1, 2, 0)), torch.stack(
         arr_gt_logits
-    ).transpose(0, 2)
+    ).permute((1, 2, 0))
 
 
 def load_dataset():
-    pass
+    bc = ds_bc.download_bookcorpus()
+    dataset = ds_bc.BookCorpusDataset(bc)
+
+    return dataset
 
 
 def recycle(iterable):
@@ -187,9 +194,12 @@ def recycle(iterable):
 
 
 def main():
+    batch_per_step = 8
+    save_llama = False
+    
     logger_args = utils.LoggerArgs()
-    train_args = MemoryLLamaTrainArgs()
-    memory_args = memory.MemoryArgs()
+    train_args = MemoryLLamaTrainArgs(mem_cycle_len=16,max_gen_len=8)
+    memory_args = mem_.MemoryArgs(summary_len=4, stride=4)
 
     logger = utils.setup_logger(logger_args)
     chrono = utils.Chrono()
@@ -206,39 +216,78 @@ def main():
         train_args.max_seq_len,
         train_args.max_batch_size,
     )
+    try:
+        llama_pt = pjoin(train_args.memory_ckpt_dir, "llama.pt")
+        llama.model.load_state_dict(torch.load(llama_pt, map_location="cpu"))
+        logger.info("Found a chekpoint of Llama at: " + llama_pt)
+    except FileNotFoundError:
+        logger.info("Found no checkpoint of Llama.")
+    llama.model.requires_grad_(False)
+    llama.model.to(device)
 
     # Loading Memory
-    memory = None
-    memory = memory.Memory(
+    memory = mem_.MultiHeadMemory(
+        train_args.max_seq_len,
+        8,
         memory_args.dim,
         memory_args.memory_size,
         memory_args.hdim,
         memory_args.summary_len,
         memory_args.stride,
     )
+    try:
+        memory_pt = pjoin(train_args.memory_ckpt_dir, "memory.pt")
+        memory.load_state_dict(torch.load(memory_pt, map_location="cpu"))
+        logger.info("Found a chekpoint of memory at: " + memory_pt)
+    except FileNotFoundError:
+        logger.info("Found no checkpoint of memory.")
+    memory.to(device)
 
     logger.info("Loading dataset")
     with chrono.measure("load"):
-        train_loader, val_loader = load_dataset()
+        train_ds = load_dataset()
+        train_loader = DataLoader(train_ds, batch_size=8, shuffle=True, generator=torch.Generator(device=device))
     logger.info("Dataset loaded")
 
     optim = torch.optim.SGD(memory.parameters(), lr=0.003, momentum=0.9)
-    lr_schedular = None
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optim, 20, 0.1)
     cri = torch.nn.CrossEntropyLoss().to(device)
 
+    memory.train()
+    
+    step = 1
+    accum_step = 0
     with utils.Uninterrupt() as u:
         for x in recycle(train_loader):
             if u.interrupted:
                 break
-
+            t = [llama.tokenizer.encode(s, bos=True, eos=False) for s in x]
             with chrono.measure("fprop"):
                 logit, gt_logit = generate_logits(
-                    llama, memory, train_args.mem_cycle_len, x, train_args.max_gen_len
+                    llama, memory, train_args.mem_cycle_len, t, train_args.max_gen_len
                 )
                 loss = cri(logit, gt_logit)
-            l_num = float(loss.detach().cpu().numpy)
+            l_num = float(loss.detach().cpu().numpy())
 
             with chrono.measure("grads"):
                 loss.backward()
             
-            logger.info(f"[step stephere]: loss={l_num:.5f}")
+            accum_step += 1
+            if accum_step % batch_per_step == 0:
+                accum_step = 0
+                step += 1
+                optim.step()
+                optim.zero_grad()
+                llama.model.zero_grad()
+                lr_scheduler.step()
+
+            if step % train_args.save_every == 0:
+                os.makedirs("./" + train_args.train_name + "/checkpoints/steps/" + str(step) + "/", exist_ok=True)
+                torch.save(memory.state_dict(), "./" + train_args.train_name + "/checkpoints/steps/" + str(step) + "/memory.pt")
+                if save_llama:
+                    torch.save(llama.model.state_dict(), "./" + train_args.train_name + "/checkpoints/steps/" + str(step) + "/llama.pt")
+            logger.info(f"[step {step}]: loss={l_num:.5f}")
+
+if __name__ == "__main__":
+    os.environ["HF_DATASETS_CACHE"] = "./bookcorpus/cache"
+    main()
