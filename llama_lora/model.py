@@ -6,8 +6,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-import fairscale.nn.model_parallel.initialize as fs_init
-from fairscale.nn.model_parallel.layers import VocabParallelEmbedding
 
 @dataclass
 class ModelArgs:
@@ -85,10 +83,7 @@ class Attention(nn.Module):
         self.args = args
         self.n_heads = args.n_heads
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
-        model_parallel_size = fs_init.get_model_parallel_world_size()
-        self.n_local_heads = args.n_heads // model_parallel_size
-        self.n_local_kv_heads = self.n_kv_heads // model_parallel_size
-        self.n_rep = self.n_local_heads // self.n_local_kv_heads
+        self.n_rep = self.n_heads // self.n_kv_heads
         self.head_dim = args.dim // args.n_heads
 
         self.w_q = torch.randn((args.n_heads * self.head_dim, args.dim)).cuda()
@@ -101,12 +96,20 @@ class Attention(nn.Module):
 
         self.lora_wq_a = nn.Linear(args.dim, rank, bias=False)
         self.lora_wq_b = nn.Linear(rank, args.n_heads * self.head_dim, bias=False)
+        torch.nn.init.zeros_(self.lora_wq_a.weight)
+        torch.nn.init.zeros_(self.lora_wq_b.weight)
         self.lora_wk_a = nn.Linear(args.dim, rank, bias=False)
         self.lora_wk_b = nn.Linear(rank, self.n_kv_heads * self.head_dim, bias=False)
+        torch.nn.init.zeros_(self.lora_wk_a.weight)
+        torch.nn.init.zeros_(self.lora_wk_b.weight)
         self.lora_wv_a = nn.Linear(args.dim, rank, bias=False)
         self.lora_wv_b = nn.Linear(rank, self.n_kv_heads * self.head_dim, bias=False)
+        torch.nn.init.zeros_(self.lora_wv_a.weight)
+        torch.nn.init.zeros_(self.lora_wv_b.weight)
         self.lora_wo_a = nn.Linear(args.n_heads * self.head_dim, rank, bias=False)
         self.lora_wo_b = nn.Linear(rank, args.dim, bias=False)
+        torch.nn.init.zeros_(self.lora_wo_a.weight)
+        torch.nn.init.zeros_(self.lora_wo_b.weight)
 
         self.cache_k = torch.zeros(
             (
@@ -140,7 +143,7 @@ class Attention(nn.Module):
             (
                 self.args.max_batch_size,
                 self.args.max_seq_len,
-                self.n_local_kv_heads,
+                self.n_kv_heads,
                 self.head_dim,
             )
         ).cuda()
@@ -148,7 +151,7 @@ class Attention(nn.Module):
             (
                 self.args.max_batch_size,
                 self.args.max_seq_len,
-                self.n_local_kv_heads,
+                self.n_kv_heads,
                 self.head_dim,
             )
         ).cuda()
@@ -228,10 +231,16 @@ class FeedForward(nn.Module):
         
         self.lora_w1_a = nn.Linear(dim, rank, bias=False)
         self.lora_w1_b = nn.Linear(rank, hidden_dim, bias=False)
+        torch.nn.init.zeros_(self.lora_w1_a.weight)
+        torch.nn.init.zeros_(self.lora_w1_b.weight)
         self.lora_w2_a = nn.Linear(hidden_dim, rank, bias=False)
         self.lora_w2_b = nn.Linear(rank, dim, bias=False)
+        torch.nn.init.zeros_(self.lora_w2_a.weight)
+        torch.nn.init.zeros_(self.lora_w2_b.weight)
         self.lora_w3_a = nn.Linear(dim, rank, bias=False)
         self.lora_w3_b = nn.Linear(rank, hidden_dim, bias=False)
+        torch.nn.init.zeros_(self.lora_w3_a.weight)
+        torch.nn.init.zeros_(self.lora_w3_b.weight)
 
     def load_weights(self, weights: dict, prefix: str = ""):
         self.w_1 = weights[prefix + "w1.weight"].detach().cuda()
@@ -297,8 +306,8 @@ class Transformer(nn.Module):
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
 
-        self.tok_embeddings = VocabParallelEmbedding(
-            params.vocab_size, params.dim, init_method=lambda x: x
+        self.tok_embeddings = nn.Embedding(
+            params.vocab_size, params.dim
         )
 
         self.layers = torch.nn.ModuleList()
@@ -313,6 +322,8 @@ class Transformer(nn.Module):
         self.w_output = torch.randn(params.vocab_size, params.dim).cuda()
         self.lora_output_a = nn.Linear(params.dim, self.rank, bias=False)
         self.lora_output_b = nn.Linear(self.rank, params.vocab_size, bias=False)
+        torch.nn.init.zeros_(self.lora_output_a.weight)
+        torch.nn.init.zeros_(self.lora_output_b.weight)
 
         self.freqs_cis = precompute_freqs_cis(
             params.dim // params.n_heads,
@@ -329,7 +340,7 @@ class Transformer(nn.Module):
         for i in range(len(self.layers)):
             layer_prefix = prefix + "layers." + str(i) + "."
             self.layers[i].load_weights(weights, layer_prefix)
-    
+        
     def clear_cache(self):
         for layer in self.layers:
             h = layer.clear_cache()
