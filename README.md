@@ -14,7 +14,15 @@ If you want to train Memory-Transformer with official Llama implemetation from F
 Note that you need to edit model.py accordingly for backward() function in torch - See memory_transformer/llama/model.py.
 
 ## Installation
-To install, run the command below.
+To install, move setup.py and requirements.txt outside of the directory:
+    
+    ../
+        - setup.py
+        - requirements.txt
+        memory-transformer/
+            ...
+
+and run the command below.
 
     pip install -e .
 It will automatically install memory_transformer package and every requirements except fairscale.
