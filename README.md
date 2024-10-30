@@ -27,7 +27,7 @@ And run the command below in your folder.
     pip install -e .
 It will automatically install memory_transformer package and every requirements except fairscale.
 
-CAUTION : Installing package with -e have some known issues.
+**CAUTION** : Installing package with -e have some known issues.
 
 ## Description of Files
 
