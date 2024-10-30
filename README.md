@@ -11,7 +11,7 @@ This is the repository of memory-transformer experiment.
 If you want to train Memory-Transformer with official Llama implemetation from Facebook Llama repository, you need to install.
 
     fairscale
-Note that you need to edit model.py accordingly for backward() function in torch - See memory_transformer/llama/model.py.
+Note that you need to edit model.py accordingly for backward() function in torch. - See memory_transformer/llama/model.py.
 
 ## Installation
 To install, move setup.py and requirements.txt outside of the directory:
@@ -25,9 +25,7 @@ To install, move setup.py and requirements.txt outside of the directory:
 And run the command below in your folder.
 
     pip install -e .
-It will automatically install memory_transformer package and every requirements except fairscale.
-
-**CAUTION** : Installing package with -e have some known issues.
+It will automatically install memory_transformer package and every requirements except fairscale.<br />**CAUTION** : Installing package with -e have some known issues.
 
 ## Description of Files
 
