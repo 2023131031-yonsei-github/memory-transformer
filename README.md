@@ -16,7 +16,7 @@ Note that you need to edit model.py accordingly for backward() function in torch
 ## Installation
 To install, move setup.py and requirements.txt outside of the directory:
     
-    ../
+    ./
         - setup.py
         - requirements.txt
         memory-transformer/
