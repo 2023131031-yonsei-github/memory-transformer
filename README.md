@@ -19,7 +19,7 @@ To install, move setup.py and requirements.txt outside of the directory:
     
     - setup.py
     - requirements.txt
-    - memory-transformer/
+    - memory-transformer
         ...
 
 and run the command below.
